@@ -157,13 +157,12 @@ export default function Index() {
           <div className="space-y-4 animate-fade-in">
 
             {/* Players bar */}
-            <div className="tg-card p-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground mr-1">Игрок:</span>
+            <div className="tg-card p-2 flex flex-wrap items-center gap-1.5">
               {players.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => switchPlayer(p.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-150 border ${
+                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-sm font-medium transition-all duration-150 border ${
                     currentPlayerId === p.id
                       ? "bg-[#F0F7FF] border-[var(--tg-blue)] text-[var(--tg-blue)]"
                       : "bg-white border-[var(--tg-divider)] text-foreground hover:border-gray-300"
@@ -176,21 +175,8 @@ export default function Index() {
                   </span>
                 </button>
               ))}
-
-              {currentPlayer && (
-                <div className="ml-auto flex items-center gap-1.5">
-                  <Icon name="Coins" size={14} className="text-[var(--tg-orange)]" />
-                  <span className="text-sm font-bold text-foreground">{currentPlayer.balance}</span>
-                  <span className="text-xs text-muted-foreground">монет</span>
-                </div>
-              )}
-            </div>
-
-            {/* Info strip */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F0F7FF] border border-blue-100">
-              <Icon name="Info" size={14} className="text-[var(--tg-blue)] shrink-0" />
-              <span className="text-xs text-[var(--tg-blue)]">
-                Ставка <strong>2 монеты</strong> · 1 монета идёт в банк слота · +15 сек при каждой ставке
+              <span className="ml-auto text-[11px] text-muted-foreground pr-1">
+                Ставка <strong className="text-foreground">2</strong> · банк <strong className="text-foreground">+1</strong> · +15 сек
               </span>
             </div>
 
