@@ -1,465 +1,358 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 
 const PARTICIPANT_1 = "https://cdn.poehali.dev/projects/3d539b43-1a77-4371-8ab4-b437e1755fa8/files/eb046628-6cac-4cf4-856c-dd7216ba71ef.jpg";
 const PARTICIPANT_2 = "https://cdn.poehali.dev/projects/3d539b43-1a77-4371-8ab4-b437e1755fa8/files/d149bbd6-0fde-4bbc-bd7e-889b9b990c17.jpg";
 
-interface Bid {
-  id: number;
+const BID_COST = 2;
+const BID_TO_BANK = 1;
+const EXTEND_SECONDS = 15;
+
+interface Player {
+  id: string;
   name: string;
   surname: string;
-  amount: number;
+  avatar: string;
+  balance: number;
+}
+
+interface BidEntry {
+  playerId: string;
+  name: string;
+  surname: string;
+  avatar: string;
   time: string;
-  avatar: string;
-  isNew?: boolean;
 }
 
-interface Auction {
+interface Slot {
   id: number;
-  title: string;
-  description: string;
+  label: string;
+  initialBank: number;
   bank: number;
-  currentBid: number;
-  startBid: number;
-  endsAt: number;
-  bids: Bid[];
-  winner?: string;
-  status: "active" | "ended";
-  avatar: string;
-  category: string;
+  timeLimit: number;
+  remainingMs: number;
+  holder: Player | null;
+  bids: BidEntry[];
+  finished: boolean;
+  winner: Player | null;
 }
 
-const initialBids: Bid[] = [
-  { id: 1, name: "Александр", surname: "Петров", amount: 185000, time: "14:32", avatar: PARTICIPANT_1 },
-  { id: 2, name: "Мария", surname: "Соколова", amount: 172000, time: "14:28", avatar: PARTICIPANT_2 },
-  { id: 3, name: "Дмитрий", surname: "Иванов", amount: 155000, time: "14:21", avatar: PARTICIPANT_1 },
-  { id: 4, name: "Елена", surname: "Новикова", amount: 140000, time: "14:15", avatar: PARTICIPANT_2 },
-  { id: 5, name: "Сергей", surname: "Козлов", amount: 120000, time: "14:05", avatar: PARTICIPANT_1 },
+const SLOT_CONFIGS = [
+  { id: 1, label: "Слот A", initialBank: 4,  timeLimit: 90  },
+  { id: 2, label: "Слот B", initialBank: 4,  timeLimit: 90  },
+  { id: 3, label: "Слот C", initialBank: 8,  timeLimit: 120 },
+  { id: 4, label: "Слот D", initialBank: 10, timeLimit: 120 },
 ];
 
-const initialAuctions: Auction[] = [
-  {
-    id: 1,
-    title: "Картина Малевича",
-    description: "Оригинальная работа начала XX века, холст/масло, 60×80 см",
-    bank: 850000,
-    currentBid: 185000,
-    startBid: 100000,
-    endsAt: Date.now() + 1000 * 60 * 8 + 1000 * 47,
-    bids: initialBids,
-    status: "active",
-    avatar: PARTICIPANT_1,
-    category: "Живопись",
-  },
-  {
-    id: 2,
-    title: "Редкая монета 1812 г.",
-    description: "Серебряный рубль Александра I, состояние превосходное",
-    bank: 320000,
-    currentBid: 98000,
-    startBid: 50000,
-    endsAt: Date.now() + 1000 * 60 * 23 + 1000 * 12,
-    bids: [
-      { id: 10, name: "Игорь", surname: "Белов", amount: 98000, time: "13:55", avatar: PARTICIPANT_2 },
-      { id: 11, name: "Татьяна", surname: "Орлова", amount: 85000, time: "13:40", avatar: PARTICIPANT_1 },
-    ],
-    status: "active",
-    avatar: PARTICIPANT_2,
-    category: "Нумизматика",
-  },
-  {
-    id: 3,
-    title: "Антикварные часы Breguet",
-    description: "Карманные часы 1890 года, золотой корпус, механизм в рабочем состоянии",
-    bank: 560000,
-    currentBid: 210000,
-    startBid: 150000,
-    endsAt: Date.now() + 1000 * 60 * 45,
-    bids: [
-      { id: 20, name: "Виктор", surname: "Смирнов", amount: 210000, time: "13:20", avatar: PARTICIPANT_1 },
-      { id: 21, name: "Анна", surname: "Лебедева", amount: 190000, time: "13:10", avatar: PARTICIPANT_2 },
-      { id: 22, name: "Олег", surname: "Васильев", amount: 170000, time: "13:00", avatar: PARTICIPANT_1 },
-    ],
-    status: "active",
-    avatar: PARTICIPANT_1,
-    category: "Антиквариат",
-  },
+function buildSlots(): Slot[] {
+  return SLOT_CONFIGS.map((s) => ({
+    ...s,
+    bank: s.initialBank,
+    remainingMs: s.timeLimit * 1000,
+    holder: null,
+    bids: [],
+    finished: false,
+    winner: null,
+  }));
+}
+
+function formatTime(ms: number) {
+  const total = Math.max(0, ms);
+  const m = Math.floor(total / 60000);
+  const s = Math.floor((total % 60000) / 1000);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function timerClass(ms: number, limit: number) {
+  const ratio = ms / (limit * 1000);
+  if (ratio < 0.2) return "text-pink neon-pink";
+  if (ratio < 0.5) return "text-gold neon-gold";
+  return "text-cyan neon-cyan";
+}
+
+function timerBorderClass(ms: number, limit: number) {
+  const ratio = ms / (limit * 1000);
+  if (ratio < 0.2) return "border-pink/60 bg-pink/10 timer-urgent";
+  if (ratio < 0.5) return "border-gold/40 bg-gold/5";
+  return "border-cyan/30 bg-cyan/5";
+}
+
+const DEMO_PLAYERS: Player[] = [
+  { id: "p1", name: "Александр", surname: "Петров",  avatar: PARTICIPANT_1, balance: 50 },
+  { id: "p2", name: "Мария",     surname: "Соколова", avatar: PARTICIPANT_2, balance: 50 },
+  { id: "p3", name: "Дмитрий",   surname: "Иванов",   avatar: PARTICIPANT_1, balance: 50 },
+  { id: "p4", name: "Елена",     surname: "Новикова", avatar: PARTICIPANT_2, balance: 50 },
 ];
 
-const completedAuctions: Auction[] = [
-  {
-    id: 101,
-    title: "Скрипка Страдивари (реплика)",
-    description: "Мастерская копия XVIII века",
-    bank: 1200000,
-    currentBid: 480000,
-    startBid: 200000,
-    endsAt: Date.now() - 1000 * 3600,
-    bids: [
-      { id: 100, name: "Николай", surname: "Фролов", amount: 480000, time: "09:15", avatar: PARTICIPANT_1 },
-      { id: 101, name: "Светлана", surname: "Морозова", amount: 420000, time: "09:00", avatar: PARTICIPANT_2 },
-    ],
-    winner: "Николай Фролов",
-    status: "ended",
-    avatar: PARTICIPANT_1,
-    category: "Музыка",
-  },
-  {
-    id: 102,
-    title: "Бриллиантовое кольцо XIX в.",
-    description: "Фамильная реликвия, 3.2 карата",
-    bank: 2100000,
-    currentBid: 920000,
-    startBid: 500000,
-    endsAt: Date.now() - 1000 * 7200,
-    bids: [
-      { id: 110, name: "Павел", surname: "Горин", amount: 920000, time: "07:45", avatar: PARTICIPANT_2 },
-      { id: 111, name: "Ирина", surname: "Волкова", amount: 870000, time: "07:30", avatar: PARTICIPANT_1 },
-    ],
-    winner: "Павел Горин",
-    status: "ended",
-    avatar: PARTICIPANT_2,
-    category: "Ювелирика",
-  },
-];
+type Tab = "game" | "history";
 
-function formatMoney(n: number) {
-  return n.toLocaleString("ru-RU") + " ₽";
+interface RoundResult {
+  round: number;
+  slots: { label: string; winner: string | null; winnerAvatar: string | null; bank: number }[];
 }
 
-function useCountdown(endsAt: number) {
-  const [remaining, setRemaining] = useState(Math.max(0, endsAt - Date.now()));
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const r = Math.max(0, endsAt - Date.now());
-      setRemaining(r);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [endsAt]);
-
-  const minutes = Math.floor(remaining / 60000);
-  const seconds = Math.floor((remaining % 60000) / 1000);
-  const isUrgent = remaining < 60000 && remaining > 0;
-  const isEnded = remaining === 0;
-
-  return { minutes, seconds, isUrgent, isEnded, remaining };
-}
-
-function CountdownTimer({ endsAt }: { endsAt: number }) {
-  const { minutes, seconds, isUrgent, isEnded } = useCountdown(endsAt);
-
-  if (isEnded) return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted border border-border">
-      <div className="w-2 h-2 rounded-full bg-muted-foreground"></div>
-      <span className="text-muted-foreground font-golos text-sm font-medium">Завершён</span>
-    </div>
-  );
-
-  return (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${isUrgent ? "border-pink/60 bg-pink/10 timer-urgent" : "border-gold/40 bg-gold/5"}`}>
-      <Icon name="Clock" size={14} className={isUrgent ? "text-pink" : "text-gold"} />
-      <span className={`font-oswald text-lg font-semibold tabular-nums ${isUrgent ? "text-pink neon-pink" : "text-gold neon-gold"}`}>
-        {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
-      </span>
-    </div>
-  );
-}
-
-function BidRow({ bid, index }: { bid: Bid; index: number }) {
-  const [flashing, setFlashing] = useState(bid.isNew || false);
-
-  useEffect(() => {
-    if (bid.isNew) {
-      setFlashing(true);
-      setTimeout(() => setFlashing(false), 800);
-    }
-  }, [bid.isNew]);
-
-  return (
-    <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${flashing ? "animate-bid-flash" : ""} ${index === 0 ? "bg-cyan/5 border border-cyan/20" : "bg-muted/30"}`}>
-      <div className="text-muted-foreground font-oswald text-sm w-5 text-center">#{index + 1}</div>
-      <img src={bid.avatar} alt={bid.name} className="w-8 h-8 rounded-full object-cover border border-border" />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-foreground truncate">{bid.name} {bid.surname}</div>
-        <div className="text-xs text-muted-foreground">{bid.time}</div>
-      </div>
-      <div className={`font-oswald font-semibold text-sm ${index === 0 ? "text-cyan neon-cyan" : "text-foreground/70"}`}>
-        {formatMoney(bid.amount)}
-      </div>
-    </div>
-  );
-}
-
-function AuctionCard({ auction, onClick }: { auction: Auction; onClick: () => void }) {
-  const bidStep = Math.ceil(auction.currentBid * 0.05 / 1000) * 1000;
-  const progress = Math.min(100, (auction.currentBid / auction.bank) * 100);
-
-  return (
-    <div
-      onClick={onClick}
-      className="card-glass rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.01] transition-all duration-300 hover:border-gold/40"
-    >
-      <div className="relative h-48 bg-gradient-to-br from-muted to-background overflow-hidden">
-        <div className="absolute inset-0 bg-mesh opacity-60"></div>
-        <div className="absolute top-3 left-3 z-10">
-          <span className="px-2.5 py-1 rounded-lg text-xs font-golos font-medium bg-card/80 border border-border text-muted-foreground backdrop-blur-sm">
-            {auction.category}
-          </span>
-        </div>
-        <div className="absolute top-3 right-3 z-10">
-          <CountdownTimer endsAt={auction.endsAt} />
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-          <div className="flex items-end gap-3">
-            <img src={auction.avatar} alt="" className="w-10 h-10 rounded-full border-2 border-gold/60 object-cover" />
-            <div>
-              <div className="text-white font-oswald text-lg leading-tight">{auction.title}</div>
-              <div className="text-white/60 text-xs mt-0.5 font-golos">{auction.description}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-4 space-y-3">
-        <div className="flex justify-between items-center">
-          <div>
-            <div className="text-xs text-muted-foreground font-golos">Текущая ставка</div>
-            <div className="text-gold neon-gold font-oswald text-2xl font-bold">{formatMoney(auction.currentBid)}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-xs text-muted-foreground font-golos">Банк</div>
-            <div className="text-foreground font-oswald text-lg">{formatMoney(auction.bank)}</div>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs text-muted-foreground font-golos">
-            <span>Прогресс банка</span>
-            <span>{Math.round(progress)}%</span>
-          </div>
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-gold to-cyan rounded-full transition-all duration-700"
-              style={{ width: `${progress}%` }}
-            ></div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-1.5 text-muted-foreground text-xs font-golos">
-            <Icon name="Users" size={12} />
-            <span>{auction.bids.length} ставок</span>
-          </div>
-          <div className="text-xs text-muted-foreground font-golos">
-            Шаг: <span className="text-foreground font-medium">{formatMoney(bidStep)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AuctionModal({ auction, onClose, onBid }: {
-  auction: Auction;
-  onClose: () => void;
-  onBid: (id: number, amount: number, name: string, surname: string, avatar: string) => void;
+function SlotCard({
+  slot,
+  currentPlayer,
+  onBid,
+  blockedSlots,
+}: {
+  slot: Slot;
+  currentPlayer: Player | null;
+  onBid: (slotId: number) => void;
+  blockedSlots: number[];
 }) {
-  const [bidAmount, setBidAmount] = useState(auction.currentBid + Math.ceil(auction.currentBid * 0.05 / 1000) * 1000);
-  const [name, setName] = useState("");
-  const [surname, setSurname] = useState("");
-  const [localEndsAt, setLocalEndsAt] = useState(auction.endsAt);
-  const { minutes, seconds, isUrgent, isEnded } = useCountdown(localEndsAt);
-  const [submitted, setSubmitted] = useState(false);
-
-  const minBid = auction.currentBid + Math.ceil(auction.currentBid * 0.05 / 1000) * 1000;
-
-  const handleBid = () => {
-    if (!name.trim() || !surname.trim()) return;
-    if (bidAmount < minBid) return;
-
-    const avatar = Math.random() > 0.5 ? PARTICIPANT_1 : PARTICIPANT_2;
-
-    if (localEndsAt - Date.now() < 120000) {
-      setLocalEndsAt(Date.now() + 120000);
-    }
-
-    onBid(auction.id, bidAmount, name, surname, avatar);
-    setSubmitted(true);
-    setTimeout(() => setSubmitted(false), 2000);
-    setBidAmount(bidAmount + Math.ceil(bidAmount * 0.05 / 1000) * 1000);
-    setName("");
-    setSurname("");
-  };
+  const isHolder  = !!(currentPlayer && slot.holder?.id === currentPlayer.id);
+  const isBlocked = !!(currentPlayer && blockedSlots.includes(slot.id));
+  const canBid    = !!(currentPlayer && !isHolder && !isBlocked && !slot.finished && slot.remainingMs > 0 && currentPlayer.balance >= BID_COST);
+  const ratio     = slot.remainingMs / (slot.timeLimit * 1000);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-      <div
-        className="relative card-glass rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 card-glass border-b border-border p-4 flex items-center justify-between">
+    <div className={`card-glass rounded-2xl flex flex-col transition-all duration-300 ${
+      isHolder ? "border-gold/50 glow-gold" : slot.finished ? "opacity-70" : ""
+    }`}>
+      <div className="p-5 space-y-4 flex-1">
+        <div className="flex items-start justify-between gap-2">
           <div>
-            <div className="font-oswald text-xl text-foreground">{auction.title}</div>
-            <div className="text-xs text-muted-foreground font-golos">{auction.category}</div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${isUrgent && !isEnded ? "border-pink/60 bg-pink/10 timer-urgent" : "border-gold/40 bg-gold/5"}`}>
-              <Icon name="Clock" size={14} className={isUrgent && !isEnded ? "text-pink" : "text-gold"} />
-              <span className={`font-oswald text-xl font-bold tabular-nums ${isUrgent && !isEnded ? "text-pink neon-pink" : "text-gold neon-gold"}`}>
-                {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
-              </span>
+            <div className="font-oswald text-2xl text-foreground">{slot.label}</div>
+            <div className="text-xs text-muted-foreground font-golos mt-0.5">
+              {slot.finished
+                ? "Завершён"
+                : slot.holder
+                  ? `${slot.holder.name} ${slot.holder.surname}`
+                  : "Свободен"}
             </div>
-            <button onClick={onClose} className="w-8 h-8 rounded-lg bg-muted hover:bg-border flex items-center justify-center transition-colors">
-              <Icon name="X" size={16} className="text-muted-foreground" />
-            </button>
           </div>
-        </div>
 
-        <div className="p-5 space-y-5">
-          {isUrgent && !isEnded && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-pink/10 border border-pink/30 animate-fade-in">
-              <Icon name="Zap" size={16} className="text-pink" />
-              <span className="text-pink text-sm font-golos font-medium">
-                Осталось меньше минуты! При новой ставке время продлится на 2 минуты.
+          {slot.finished ? (
+            <div className="px-3 py-1.5 rounded-xl bg-muted border border-border text-xs font-golos text-muted-foreground shrink-0">
+              Финиш
+            </div>
+          ) : (
+            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border shrink-0 ${timerBorderClass(slot.remainingMs, slot.timeLimit)}`}>
+              <Icon name="Clock" size={13} className={timerClass(slot.remainingMs, slot.timeLimit)} />
+              <span className={`font-oswald text-xl font-bold tabular-nums ${timerClass(slot.remainingMs, slot.timeLimit)}`}>
+                {formatTime(slot.remainingMs)}
               </span>
             </div>
           )}
+        </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Текущая ставка", value: formatMoney(auction.currentBid), color: "text-gold neon-gold" },
-              { label: "Банк аукциона", value: formatMoney(auction.bank), color: "text-foreground" },
-              { label: "Ставок", value: String(auction.bids.length), color: "text-foreground" },
-            ].map((s) => (
-              <div key={s.label} className="bg-muted/30 rounded-xl p-3 text-center">
-                <div className="text-xs text-muted-foreground font-golos mb-1">{s.label}</div>
-                <div className={`font-oswald text-xl font-bold ${s.color}`}>{s.value}</div>
+        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              ratio < 0.2 ? "bg-pink" : ratio < 0.5 ? "bg-gradient-to-r from-gold to-amber-400" : "bg-cyan"
+            }`}
+            style={{ width: `${Math.max(2, ratio * 100)}%` }}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-muted/30 rounded-xl p-3 text-center">
+            <div className="text-xs text-muted-foreground font-golos mb-1">Банк</div>
+            <div className="font-oswald text-3xl font-bold text-gold neon-gold">{slot.bank}</div>
+          </div>
+          <div className="bg-muted/30 rounded-xl p-3 text-center">
+            <div className="text-xs text-muted-foreground font-golos mb-1">Ставок</div>
+            <div className="font-oswald text-3xl font-bold text-foreground">{slot.bids.length}</div>
+          </div>
+        </div>
+
+        {slot.holder && !slot.finished && (
+          <div className={`flex items-center gap-3 p-3 rounded-xl ${isHolder ? "bg-gold/10 border border-gold/30" : "bg-muted/30"}`}>
+            <img src={slot.holder.avatar} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-gold/50 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-golos font-semibold text-foreground truncate">
+                {slot.holder.name} {slot.holder.surname}
+              </div>
+              <div className="text-xs text-muted-foreground font-golos">держатель</div>
+            </div>
+            {isHolder && <Icon name="Crown" size={15} className="text-gold neon-gold shrink-0" />}
+          </div>
+        )}
+
+        {slot.finished && slot.winner && (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-cyan/8 border border-cyan/25">
+            <img src={slot.winner.avatar} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-cyan/50 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-golos font-semibold text-cyan neon-cyan truncate">
+                {slot.winner.name} {slot.winner.surname}
+              </div>
+              <div className="text-xs text-muted-foreground font-golos">победитель · +{slot.bank} монет</div>
+            </div>
+            <Icon name="Trophy" size={15} className="text-cyan shrink-0" />
+          </div>
+        )}
+
+        {slot.finished && !slot.winner && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-muted/20 border border-border/50">
+            <Icon name="Ghost" size={14} className="text-muted-foreground" />
+            <span className="text-xs text-muted-foreground font-golos">Никто не ставил — банк остался</span>
+          </div>
+        )}
+
+        {isBlocked && !slot.finished && (
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/20 border border-border/50">
+            <Icon name="Ban" size={13} className="text-muted-foreground" />
+            <span className="text-xs text-muted-foreground font-golos">Пропуск — победили в прошлом раунде</span>
+          </div>
+        )}
+
+        <button
+          onClick={() => canBid && onBid(slot.id)}
+          disabled={!canBid}
+          className={`w-full py-3 rounded-xl font-oswald text-base font-semibold transition-all duration-200 ${
+            slot.finished || slot.remainingMs === 0
+              ? "bg-muted text-muted-foreground cursor-not-allowed"
+              : isHolder
+                ? "bg-gold/10 border border-gold/30 text-gold/70 cursor-not-allowed"
+                : isBlocked
+                  ? "bg-muted text-muted-foreground cursor-not-allowed"
+                  : !currentPlayer || currentPlayer.balance < BID_COST
+                    ? "bg-muted text-muted-foreground cursor-not-allowed"
+                    : "bg-gradient-to-r from-gold to-amber-500 text-[#0A0C12] hover:scale-[1.02] hover:shadow-lg hover:shadow-gold/25 active:scale-[0.99]"
+          }`}
+        >
+          {slot.finished
+            ? "Завершён"
+            : isHolder
+              ? "Вы держите слот"
+              : isBlocked
+                ? "Пропуск раунда"
+                : !currentPlayer
+                  ? "Выберите игрока"
+                  : currentPlayer.balance < BID_COST
+                    ? "Недостаточно монет"
+                    : "Поставить 2 монеты"}
+        </button>
+      </div>
+
+      {slot.bids.length > 0 && (
+        <div className="border-t border-border/40 px-5 py-3">
+          <div className="text-xs text-muted-foreground font-golos mb-2">Последние ставки</div>
+          <div className="space-y-1.5 max-h-28 overflow-y-auto">
+            {[...slot.bids].reverse().slice(0, 5).map((b, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <img src={b.avatar} alt="" className="w-5 h-5 rounded-full object-cover border border-border shrink-0" />
+                <span className="text-xs font-golos text-foreground/70 flex-1 truncate">{b.name} {b.surname}</span>
+                <span className="text-xs font-oswald text-muted-foreground shrink-0">{b.time}</span>
               </div>
             ))}
           </div>
-
-          <div className="space-y-3">
-            <div className="font-oswald text-base text-foreground">Сделать ставку</div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground font-golos block mb-1.5">Имя</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Александр"
-                  className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm font-golos text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-gold/60 transition-all"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground font-golos block mb-1.5">Фамилия</label>
-                <input
-                  value={surname}
-                  onChange={(e) => setSurname(e.target.value)}
-                  placeholder="Петров"
-                  className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm font-golos text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-gold/60 transition-all"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground font-golos block mb-1.5">
-                Сумма ставки (мин. {formatMoney(minBid)})
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={bidAmount}
-                  onChange={(e) => setBidAmount(Number(e.target.value))}
-                  min={minBid}
-                  className="flex-1 bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm font-golos text-foreground focus:outline-none focus:border-gold/60 transition-all"
-                />
-                <button
-                  onClick={() => setBidAmount(bidAmount + Math.ceil(bidAmount * 0.05 / 1000) * 1000)}
-                  className="px-3 py-2.5 rounded-xl border border-border bg-muted/50 hover:bg-border text-muted-foreground text-xs font-golos transition-colors"
-                >
-                  +5%
-                </button>
-                <button
-                  onClick={() => setBidAmount(bidAmount + Math.ceil(bidAmount * 0.1 / 1000) * 1000)}
-                  className="px-3 py-2.5 rounded-xl border border-border bg-muted/50 hover:bg-border text-muted-foreground text-xs font-golos transition-colors"
-                >
-                  +10%
-                </button>
-              </div>
-            </div>
-            <button
-              onClick={handleBid}
-              disabled={isEnded || !name.trim() || !surname.trim() || bidAmount < minBid}
-              className={`w-full py-3.5 rounded-xl font-oswald text-lg font-semibold transition-all duration-200 ${
-                submitted
-                  ? "bg-cyan/20 border border-cyan/60 text-cyan"
-                  : isEnded
-                    ? "bg-muted text-muted-foreground cursor-not-allowed"
-                    : "bg-gradient-to-r from-gold to-amber-500 text-[#0A0C12] hover:scale-[1.01] hover:shadow-lg hover:shadow-gold/20 active:scale-[0.99]"
-              }`}
-            >
-              {submitted ? "✓ Ставка принята!" : isEnded ? "Аукцион завершён" : "Сделать ставку"}
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="font-oswald text-base text-foreground">История ставок</div>
-              <div className="flex-1 h-px bg-border"></div>
-              <span className="text-xs text-muted-foreground font-golos">{auction.bids.length} ставок</span>
-            </div>
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {auction.bids.map((bid, i) => (
-                <BidRow key={bid.id} bid={bid} index={i} />
-              ))}
-            </div>
-          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-type Tab = "home" | "active" | "history";
-
 export default function Index() {
-  const [auctions, setAuctions] = useState<Auction[]>(initialAuctions);
-  const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [tab, setTab]                       = useState<Tab>("game");
+  const [slots, setSlots]                   = useState<Slot[]>(buildSlots());
+  const [players, setPlayers]               = useState<Player[]>(DEMO_PLAYERS);
+  const [currentPlayerId, setCurrentPlayerId] = useState<string>("p1");
+  const [blockedSlots, setBlockedSlots]     = useState<number[]>([]);
+  const [roundNum, setRoundNum]             = useState(1);
+  const [history, setHistory]               = useState<RoundResult[]>([]);
+  const [roundOver, setRoundOver]           = useState(false);
+  const [flashSlot, setFlashSlot]           = useState<number | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const handleBid = useCallback((auctionId: number, amount: number, name: string, surname: string, avatar: string) => {
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const currentPlayer = players.find((p) => p.id === currentPlayerId) ?? null;
 
-    setAuctions((prev) =>
-      prev.map((a) => {
-        if (a.id !== auctionId) return a;
-        const newBid: Bid = { id: Date.now(), name, surname, amount, time: timeStr, avatar, isNew: true };
-        const updatedBids = [newBid, ...a.bids];
-        const newEndsAt = a.endsAt - Date.now() < 120000 ? Date.now() + 120000 : a.endsAt;
-        return { ...a, currentBid: amount, bids: updatedBids, endsAt: newEndsAt };
+  const handleRoundEnd = useCallback((finishedSlots: Slot[]) => {
+    setRoundOver(true);
+    const result: RoundResult = {
+      round: roundNum,
+      slots: finishedSlots.map((s) => ({
+        label: s.label,
+        winner: s.winner ? `${s.winner.name} ${s.winner.surname}` : null,
+        winnerAvatar: s.winner?.avatar ?? null,
+        bank: s.bank,
+      })),
+    };
+    setHistory((h) => [result, ...h]);
+    setPlayers((pp) =>
+      pp.map((p) => {
+        const wonSlot = finishedSlots.find((s) => s.winner?.id === p.id);
+        return wonSlot ? { ...p, balance: p.balance + wonSlot.bank } : p;
+      })
+    );
+  }, [roundNum]);
+
+  useEffect(() => {
+    if (roundOver) {
+      if (tickRef.current) clearInterval(tickRef.current);
+      return;
+    }
+    tickRef.current = setInterval(() => {
+      setSlots((prev) => {
+        const next = prev.map((s) => {
+          if (s.finished || s.remainingMs <= 0) return s;
+          const newMs = Math.max(0, s.remainingMs - 100);
+          if (newMs === 0) {
+            return { ...s, remainingMs: 0, finished: true, winner: s.holder };
+          }
+          return { ...s, remainingMs: newMs };
+        });
+
+        const allDone = next.every((s) => s.finished);
+        if (allDone) {
+          setTimeout(() => handleRoundEnd(next), 0);
+        }
+        return next;
+      });
+    }, 100);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, [roundOver, handleRoundEnd]);
+
+  const handleBid = (slotId: number) => {
+    if (!currentPlayer || currentPlayer.balance < BID_COST) return;
+
+    setSlots((prev) =>
+      prev.map((s) => {
+        if (s.id !== slotId || s.finished || s.remainingMs <= 0) return s;
+        if (s.holder?.id === currentPlayer.id) return s;
+
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        const newBid: BidEntry = {
+          playerId: currentPlayer.id,
+          name: currentPlayer.name,
+          surname: currentPlayer.surname,
+          avatar: currentPlayer.avatar,
+          time: timeStr,
+        };
+        const newBank     = s.holder !== null ? s.bank + BID_TO_BANK : s.bank;
+        const newMs       = Math.min(s.remainingMs + EXTEND_SECONDS * 1000, s.timeLimit * 1000);
+
+        return { ...s, bank: newBank, holder: { ...currentPlayer }, bids: [...s.bids, newBid], remainingMs: newMs };
       })
     );
 
-    setSelectedAuction((prev) => {
-      if (!prev || prev.id !== auctionId) return prev;
-      const newBid: Bid = { id: Date.now() + 1, name, surname, amount, time: timeStr, avatar, isNew: true };
-      return { ...prev, currentBid: amount, bids: [newBid, ...prev.bids] };
-    });
-  }, []);
+    setPlayers((prev) => prev.map((p) => p.id === currentPlayer.id ? { ...p, balance: p.balance - BID_COST } : p));
+    setFlashSlot(slotId);
+    setTimeout(() => setFlashSlot(null), 600);
+  };
 
-  const stats = {
-    total: auctions.length + completedAuctions.length,
-    active: auctions.length,
-    volume: auctions.reduce((s, a) => s + a.bank, 0) + completedAuctions.reduce((s, a) => s + a.bank, 0),
+  const startNewRound = () => {
+    const wonSlotIds = slots.filter((s) => s.winner?.id === currentPlayerId).map((s) => s.id);
+    setBlockedSlots(wonSlotIds);
+    setSlots(buildSlots());
+    setRoundOver(false);
+    setRoundNum((r) => r + 1);
+  };
+
+  const switchPlayer = (id: string) => {
+    setCurrentPlayerId(id);
+    const wonSlotIds = slots.filter((s) => s.winner?.id === id).map((s) => s.id);
+    setBlockedSlots(wonSlotIds);
   };
 
   return (
     <div className="min-h-screen bg-[var(--dark-bg)] grid-lines">
-      <div className="bg-mesh fixed inset-0 pointer-events-none"></div>
+      <div className="bg-mesh fixed inset-0 pointer-events-none" />
 
-      <nav className="sticky top-0 z-40 border-b border-border/50 bg-[var(--dark-bg)]/80 backdrop-blur-xl">
+      <nav className="sticky top-0 z-40 border-b border-border/50 bg-[var(--dark-bg)]/85 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gold to-amber-600 flex items-center justify-center animate-pulse-ring">
@@ -471,207 +364,190 @@ export default function Index() {
           </div>
 
           <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 border border-border/50">
-            {(["home", "active", "history"] as Tab[]).map((tab) => {
-              const labels: Record<Tab, string> = { home: "Главная", active: "Торги", history: "История" };
-              const icons: Record<Tab, string> = { home: "Home", active: "Flame", history: "Archive" };
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-golos font-medium transition-all duration-200 ${
-                    activeTab === tab
-                      ? "bg-gold text-[#0A0C12] shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Icon name={icons[tab]} size={14} />
-                  <span className="hidden sm:inline">{labels[tab]}</span>
-                </button>
-              );
-            })}
+            {(["game", "history"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-golos font-medium transition-all duration-200 ${
+                  tab === t ? "bg-gold text-[#0A0C12]" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon name={t === "game" ? "Flame" : "Archive"} size={14} />
+                {t === "game" ? "Игра" : "История"}
+              </button>
+            ))}
           </div>
 
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan/10 border border-cyan/20">
-            <div className="w-1.5 h-1.5 rounded-full bg-cyan animate-pulse"></div>
-            <span className="text-cyan text-xs font-golos font-medium">{auctions.length} активных</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/30 border border-border/50">
+            <Icon name="Hash" size={13} className="text-muted-foreground" />
+            <span className="font-oswald text-base text-foreground">Раунд {roundNum}</span>
           </div>
         </div>
       </nav>
 
-      <main className="relative max-w-6xl mx-auto px-4 py-8">
-        {activeTab === "home" && (
-          <div className="space-y-12 animate-fade-in">
-            <div className="text-center pt-8 pb-4 space-y-5">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gold/30 bg-gold/5 text-gold text-sm font-golos font-medium stagger-1 animate-fade-in">
-                <Icon name="Zap" size={14} />
-                Онлайн-аукцион нового поколения
-              </div>
-              <h1 className="font-oswald text-5xl md:text-7xl text-foreground leading-none tracking-tight stagger-2 animate-fade-in">
-                ТОРГИ<br />
-                <span className="text-gold neon-gold">БЕЗ ГРАНИЦ</span>
-              </h1>
-              <p className="text-muted-foreground font-golos text-lg max-w-xl mx-auto stagger-3 animate-fade-in">
-                Участвуйте в уникальных аукционах редких предметов. Обратный отсчёт, азарт, победа.
-              </p>
-              <div className="flex items-center justify-center gap-3 stagger-4 animate-fade-in">
-                <button
-                  onClick={() => setActiveTab("active")}
-                  className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-gold to-amber-500 text-[#0A0C12] font-oswald text-lg font-semibold hover:scale-105 transition-all shadow-lg shadow-gold/20"
-                >
-                  Смотреть торги
-                </button>
-                <button
-                  onClick={() => setActiveTab("history")}
-                  className="px-8 py-3.5 rounded-xl border border-border bg-muted/30 text-foreground font-oswald text-lg hover:border-gold/40 transition-all"
-                >
-                  История
-                </button>
-              </div>
-            </div>
+      <main className="relative max-w-6xl mx-auto px-4 py-6">
+        {tab === "game" && (
+          <div className="space-y-5 animate-fade-in">
 
-            <div className="grid grid-cols-3 gap-4 stagger-3 animate-fade-in">
-              {[
-                { label: "Всего аукционов", value: stats.total, icon: "Gavel", color: "text-gold neon-gold" },
-                { label: "Активные торги", value: stats.active, icon: "Flame", color: "text-cyan neon-cyan" },
-                { label: "Объём торгов", value: formatMoney(stats.volume), icon: "TrendingUp", color: "text-pink neon-pink" },
-              ].map((s) => (
-                <div key={s.label} className="card-glass rounded-2xl p-5 text-center space-y-2">
-                  <Icon name={s.icon} size={22} className={s.color} />
-                  <div className={`font-oswald text-2xl md:text-3xl font-bold ${s.color}`}>{s.value}</div>
-                  <div className="text-muted-foreground text-xs font-golos">{s.label}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="font-oswald text-2xl text-foreground">Горящие торги</h2>
-                <button onClick={() => setActiveTab("active")} className="text-gold text-sm font-golos hover:underline flex items-center gap-1">
-                  Все аукционы <Icon name="ArrowRight" size={14} />
-                </button>
+            <div className="flex flex-wrap gap-3 items-center justify-between">
+              <div>
+                <h2 className="font-oswald text-2xl text-foreground">Раунд #{roundNum}</h2>
+                <p className="text-xs text-muted-foreground font-golos mt-0.5">
+                  Ставка <span className="text-gold font-semibold">2 монеты</span> · 1 монета идёт в банк слота
+                </p>
               </div>
-              <div className="grid md:grid-cols-3 gap-4">
-                {auctions.map((a) => (
-                  <AuctionCard key={a.id} auction={a} onClick={() => setSelectedAuction(a)} />
+
+              <div className="flex flex-wrap gap-2">
+                {players.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => switchPlayer(p.id)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-200 ${
+                      currentPlayerId === p.id
+                        ? "border-gold/60 bg-gold/10 scale-[1.03]"
+                        : "border-border bg-muted/20 hover:border-border/80"
+                    }`}
+                  >
+                    <img src={p.avatar} alt="" className="w-6 h-6 rounded-full object-cover border border-border" />
+                    <span className="text-xs font-golos font-medium text-foreground">{p.name}</span>
+                    <span className={`font-oswald text-sm font-bold ${currentPlayerId === p.id ? "text-gold neon-gold" : "text-muted-foreground"}`}>
+                      {p.balance}
+                    </span>
+                  </button>
                 ))}
               </div>
             </div>
-          </div>
-        )}
 
-        {activeTab === "active" && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-oswald text-3xl text-foreground">Активные торги</h2>
-                <p className="text-muted-foreground font-golos text-sm mt-1">{auctions.length} аукциона идут прямо сейчас</p>
+            {currentPlayer && (
+              <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+                currentPlayer.balance < BID_COST ? "bg-pink/8 border-pink/30" : "bg-muted/20 border-border/50"
+              }`}>
+                <img src={currentPlayer.avatar} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-gold/50 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="font-golos font-semibold text-foreground text-sm">{currentPlayer.name} {currentPlayer.surname}</span>
+                  <span className="text-xs text-muted-foreground font-golos ml-2">активный игрок</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Icon name="Coins" size={14} className="text-gold" />
+                  <span className="font-oswald text-xl font-bold text-gold neon-gold">{currentPlayer.balance}</span>
+                  <span className="text-xs text-muted-foreground font-golos">монет</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan/10 border border-cyan/20">
-                <div className="w-2 h-2 rounded-full bg-cyan animate-pulse"></div>
-                <span className="text-cyan text-sm font-golos font-semibold">LIVE</span>
-              </div>
-            </div>
-            <div className="grid md:grid-cols-3 gap-5">
-              {auctions.map((a, i) => (
-                <div key={a.id} className={`stagger-${i + 1} animate-fade-in`}>
-                  <AuctionCard auction={a} onClick={() => setSelectedAuction(a)} />
+            )}
+
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              {slots.map((slot) => (
+                <div
+                  key={slot.id}
+                  className={`transition-all duration-300 ${flashSlot === slot.id ? "animate-bid-flash" : ""}`}
+                >
+                  <SlotCard
+                    slot={slot}
+                    currentPlayer={currentPlayer}
+                    onBid={handleBid}
+                    blockedSlots={blockedSlots}
+                  />
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {activeTab === "history" && (
-          <div className="space-y-6 animate-fade-in">
+        {tab === "history" && (
+          <div className="space-y-5 animate-fade-in">
             <div>
-              <h2 className="font-oswald text-3xl text-foreground">История аукционов</h2>
-              <p className="text-muted-foreground font-golos text-sm mt-1">Завершённые торги и победители</p>
+              <h2 className="font-oswald text-3xl text-foreground">История раундов</h2>
+              <p className="text-muted-foreground font-golos text-sm mt-1">Завершённые раунды и победители</p>
             </div>
-            <div className="space-y-4">
-              {completedAuctions.map((a, i) => (
-                <div key={a.id} className={`card-glass rounded-2xl p-5 stagger-${i + 1} animate-fade-in`}>
-                  <div className="flex items-start gap-4">
-                    <div className="relative shrink-0">
-                      <img src={a.avatar} alt="" className="w-14 h-14 rounded-xl object-cover border border-border" />
-                      <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-cyan/20 border border-cyan/60 flex items-center justify-center">
-                        <Icon name="Trophy" size={10} className="text-cyan" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div>
-                          <div className="font-oswald text-lg text-foreground">{a.title}</div>
-                          <div className="text-xs text-muted-foreground font-golos mt-0.5">{a.description}</div>
-                        </div>
-                        <span className="shrink-0 px-2.5 py-1 rounded-lg bg-muted border border-border text-xs font-golos text-muted-foreground">
-                          {a.category}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-end gap-4 mt-3">
-                        <div>
-                          <div className="text-xs text-muted-foreground font-golos">Финальная ставка</div>
-                          <div className="font-oswald text-xl font-bold text-gold neon-gold">{formatMoney(a.currentBid)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground font-golos">Банк</div>
-                          <div className="font-oswald text-lg text-foreground">{formatMoney(a.bank)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground font-golos">Участников</div>
-                          <div className="font-oswald text-lg text-foreground">{a.bids.length}</div>
-                        </div>
-                        {a.winner && (
-                          <div className="ml-auto">
-                            <div className="text-xs text-muted-foreground font-golos">Победитель</div>
-                            <div className="flex items-center gap-2 mt-1">
-                              <img src={a.bids[0]?.avatar} alt="" className="w-6 h-6 rounded-full object-cover border border-cyan/40" />
-                              <span className="font-golos font-medium text-cyan neon-cyan">{a.winner}</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="mt-4 pt-4 border-t border-border/50">
-                    <div className="text-xs text-muted-foreground font-golos mb-2">Топ ставок</div>
-                    <div className="space-y-2">
-                      {a.bids.slice(0, 3).map((bid, idx) => (
-                        <div key={bid.id} className={`flex items-center gap-3 p-2.5 rounded-xl ${idx === 0 ? "bg-cyan/5 border border-cyan/20" : "bg-muted/20"}`}>
-                          <span className="text-muted-foreground font-oswald text-sm w-5 text-center">#{idx + 1}</span>
-                          <img src={bid.avatar} alt="" className="w-7 h-7 rounded-full object-cover border border-border" />
-                          <div className="flex-1">
-                            <span className="text-sm font-golos text-foreground">{bid.name} {bid.surname}</span>
-                          </div>
-                          <span className={`font-oswald text-sm font-semibold ${idx === 0 ? "text-cyan neon-cyan" : "text-foreground/60"}`}>
-                            {formatMoney(bid.amount)}
-                          </span>
+            {history.length === 0 ? (
+              <div className="card-glass rounded-2xl p-16 text-center">
+                <Icon name="Archive" size={36} className="text-muted-foreground mx-auto mb-3" />
+                <div className="text-muted-foreground font-golos">Нет завершённых раундов</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {history.map((r, i) => (
+                  <div key={i} className="card-glass rounded-2xl p-5 animate-fade-in">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-gold/15 border border-gold/30 flex items-center justify-center shrink-0">
+                        <span className="font-oswald text-sm font-bold text-gold">{r.round}</span>
+                      </div>
+                      <div className="font-oswald text-lg text-foreground">Раунд #{r.round}</div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {r.slots.map((s, j) => (
+                        <div key={j} className={`rounded-xl p-3 text-center ${s.winner ? "bg-gold/5 border border-gold/20" : "bg-muted/20"}`}>
+                          <div className="text-xs text-muted-foreground font-golos mb-1">{s.label}</div>
+                          <div className="font-oswald text-2xl font-bold text-gold mb-1">{s.bank}</div>
+                          {s.winner && s.winnerAvatar && (
+                            <div className="flex items-center justify-center gap-1.5 mt-1">
+                              <img src={s.winnerAvatar} alt="" className="w-5 h-5 rounded-full object-cover border border-border" />
+                              <span className="text-xs font-golos text-cyan neon-cyan truncate">{s.winner.split(" ")[0]}</span>
+                            </div>
+                          )}
+                          {!s.winner && <span className="text-xs text-muted-foreground font-golos">—</span>}
                         </div>
                       ))}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>
 
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-        <div className="flex items-center gap-2 px-4 py-2.5 card-glass rounded-full border border-gold/20 shadow-lg animate-ticker whitespace-nowrap">
-          <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse shrink-0"></div>
-          <span className="text-xs font-golos text-muted-foreground">
-            Александр П. поставил <span className="text-gold font-medium">185 000 ₽</span> на «Картину Малевича»
-          </span>
-        </div>
-      </div>
+      {roundOver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" />
+          <div className="relative card-glass rounded-2xl p-8 max-w-md w-full text-center animate-scale-in space-y-5">
+            <div className="w-16 h-16 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center mx-auto">
+              <Icon name="Trophy" size={28} className="text-gold neon-gold" />
+            </div>
+            <div>
+              <div className="font-oswald text-3xl text-foreground">Раунд завершён!</div>
+              <div className="text-muted-foreground font-golos text-sm mt-1">Раунд #{roundNum}</div>
+            </div>
 
-      {selectedAuction && (
-        <AuctionModal
-          auction={selectedAuction}
-          onClose={() => setSelectedAuction(null)}
-          onBid={handleBid}
-        />
+            <div className="space-y-2 text-left">
+              {slots.map((s) => (
+                <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
+                  <span className="font-oswald text-sm text-muted-foreground w-14 shrink-0">{s.label}</span>
+                  {s.winner ? (
+                    <>
+                      <img src={s.winner.avatar} alt="" className="w-6 h-6 rounded-full object-cover border border-border shrink-0" />
+                      <span className="text-sm font-golos text-foreground flex-1 truncate">{s.winner.name} {s.winner.surname}</span>
+                      <span className="font-oswald font-bold text-gold shrink-0">+{s.bank}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm font-golos text-muted-foreground flex-1">Никто не ставил</span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="p-3 rounded-xl bg-muted/20 border border-border/50">
+              <div className="text-xs text-muted-foreground font-golos mb-2">Баланс игроков</div>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {players.map((p) => (
+                  <div key={p.id} className="flex items-center gap-1.5">
+                    <img src={p.avatar} alt="" className="w-5 h-5 rounded-full object-cover border border-border" />
+                    <span className="text-xs font-golos text-foreground">{p.name}:</span>
+                    <span className="font-oswald text-sm text-gold font-bold">{p.balance}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={startNewRound}
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-gold to-amber-500 text-[#0A0C12] font-oswald text-lg font-semibold hover:scale-[1.02] transition-all shadow-lg shadow-gold/20"
+            >
+              Новый раунд →
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
