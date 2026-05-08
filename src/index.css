@@ -4,42 +4,44 @@
 
 @layer base {
   :root {
-    --background: 220 20% 6%;
-    --foreground: 210 20% 95%;
+    --background: 220 20% 97%;
+    --foreground: 220 15% 15%;
 
-    --card: 220 18% 10%;
-    --card-foreground: 210 20% 95%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 15%;
 
-    --popover: 220 18% 10%;
-    --popover-foreground: 210 20% 95%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 15%;
 
-    --primary: 38 95% 55%;
-    --primary-foreground: 220 20% 6%;
+    --primary: 210 100% 50%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 15% 16%;
-    --secondary-foreground: 210 20% 85%;
+    --secondary: 220 15% 94%;
+    --secondary-foreground: 220 15% 35%;
 
-    --muted: 220 15% 14%;
-    --muted-foreground: 215 15% 55%;
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 55%;
 
-    --accent: 174 80% 48%;
-    --accent-foreground: 220 20% 6%;
+    --accent: 210 100% 95%;
+    --accent-foreground: 210 100% 40%;
 
     --destructive: 0 75% 55%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 220 15% 18%;
-    --input: 220 15% 14%;
-    --ring: 38 95% 55%;
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 210 100% 50%;
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
-    --neon-gold: #f5a623;
-    --neon-cyan: #00e5cc;
-    --neon-pink: #ff3d8b;
-    --dark-bg: #0a0c12;
-    --card-bg: #111520;
-    --card-border: #1e2335;
+    --tg-blue: #2aabee;
+    --tg-blue-dark: #1a8cd8;
+    --tg-green: #31c768;
+    --tg-red: #e53935;
+    --tg-orange: #ff9800;
+    --tg-bg: #f0f2f5;
+    --tg-card: #ffffff;
+    --tg-divider: #e4e6eb;
   }
 }
 
@@ -47,82 +49,73 @@
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
-    font-family: "Golos Text", sans-serif;
-    background-color: var(--dark-bg);
+    font-family: "Inter", system-ui, sans-serif;
+    background-color: var(--tg-bg);
   }
-
   h1,
   h2,
-  h3 {
-    font-family: "Oswald", sans-serif;
+  h3,
+  h4 {
+    font-family: "Inter", system-ui, sans-serif;
+    font-weight: 600;
   }
 }
 
 @layer utilities {
-  .neon-gold {
-    color: var(--neon-gold);
-    text-shadow: 0 0 20px rgba(245, 166, 35, 0.5);
-  }
-  .neon-cyan {
-    color: var(--neon-cyan);
-    text-shadow: 0 0 20px rgba(0, 229, 204, 0.5);
-  }
-  .neon-pink {
-    color: var(--neon-pink);
-    text-shadow: 0 0 20px rgba(255, 61, 139, 0.4);
-  }
-
-  .card-glass {
-    background: rgba(17, 21, 32, 0.85);
-    border: 1px solid var(--card-border);
-    backdrop-filter: blur(12px);
-  }
-
-  .glow-gold {
+  .tg-card {
+    background: var(--tg-card);
+    border: 1px solid var(--tg-divider);
+    border-radius: 16px;
     box-shadow:
-      0 0 30px rgba(245, 166, 35, 0.2),
-      0 0 60px rgba(245, 166, 35, 0.08);
-  }
-  .glow-cyan {
-    box-shadow:
-      0 0 30px rgba(0, 229, 204, 0.2),
-      0 0 60px rgba(0, 229, 204, 0.08);
+      0 1px 4px rgba(0, 0, 0, 0.06),
+      0 2px 12px rgba(0, 0, 0, 0.04);
   }
 
-  .bg-mesh {
-    background-image:
-      radial-gradient(
-        ellipse 60% 40% at 70% 20%,
-        rgba(245, 166, 35, 0.08) 0%,
-        transparent 60%
-      ),
-      radial-gradient(
-        ellipse 50% 40% at 10% 80%,
-        rgba(0, 229, 204, 0.06) 0%,
-        transparent 60%
-      ),
-      radial-gradient(
-        ellipse 40% 50% at 90% 70%,
-        rgba(255, 61, 139, 0.05) 0%,
-        transparent 60%
-      );
+  .tg-blue {
+    color: var(--tg-blue);
+  }
+  .tg-green {
+    color: var(--tg-green);
+  }
+  .tg-orange {
+    color: var(--tg-orange);
+  }
+  .tg-red {
+    color: var(--tg-red);
   }
 
-  .grid-lines {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 60px 60px;
+  .btn-primary {
+    background: linear-gradient(
+      135deg,
+      var(--tg-blue) 0%,
+      var(--tg-blue-dark) 100%
+    );
+    color: #fff;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.18s ease;
+    box-shadow: 0 2px 8px rgba(42, 171, 238, 0.28);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(42, 171, 238, 0.38);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .btn-primary:disabled {
+    background: #c5cad3;
+    box-shadow: none;
+    cursor: not-allowed;
   }
 }
 
 @keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -132,100 +125,57 @@
 @keyframes scale-in {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.94);
   }
   to {
     opacity: 1;
     transform: scale(1);
   }
 }
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgba(245, 166, 35, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 12px rgba(245, 166, 35, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(245, 166, 35, 0);
-  }
-}
-@keyframes ticker-up {
-  0% {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  20% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  80% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-}
 @keyframes bid-flash {
   0% {
-    background: rgba(0, 229, 204, 0.25);
+    background: rgba(42, 171, 238, 0.12);
   }
   100% {
     background: transparent;
   }
 }
-@keyframes marquee {
-  from {
-    transform: translateX(0);
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
   }
-  to {
-    transform: translateX(-50%);
+  50% {
+    opacity: 0.35;
   }
 }
 
 .animate-fade-in {
-  animation: fade-in 0.5s ease forwards;
+  animation: fade-in 0.35s ease forwards;
 }
 .animate-scale-in {
-  animation: scale-in 0.4s ease forwards;
-}
-.animate-pulse-ring {
-  animation: pulse-ring 2s infinite;
-}
-.animate-ticker {
-  animation: ticker-up 3s ease-in-out infinite;
+  animation: scale-in 0.3s ease forwards;
 }
 .animate-bid-flash {
-  animation: bid-flash 0.8s ease forwards;
+  animation: bid-flash 0.7s ease forwards;
 }
-.animate-marquee {
-  animation: marquee 30s linear infinite;
+.animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
 .stagger-1 {
-  animation-delay: 0.1s;
+  animation-delay: 0.05s;
   opacity: 0;
 }
 .stagger-2 {
-  animation-delay: 0.2s;
+  animation-delay: 0.1s;
   opacity: 0;
 }
 .stagger-3 {
-  animation-delay: 0.3s;
+  animation-delay: 0.15s;
   opacity: 0;
 }
 .stagger-4 {
-  animation-delay: 0.4s;
+  animation-delay: 0.2s;
   opacity: 0;
-}
-.stagger-5 {
-  animation-delay: 0.5s;
-  opacity: 0;
-}
-
-.timer-urgent {
-  animation: pulse-ring 1s infinite;
-  border-color: rgba(255, 61, 139, 0.6) !important;
 }
